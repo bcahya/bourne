@@ -7,11 +7,12 @@ defmodule Bourne.Stream do
     key = Keyword.get(options, :key, :id)
     direction = Keyword.get(options, :direction, :asc)
     chunk = Keyword.get(options, :chunk, 1_000)
+    on_chunk = Keyword.get(options, :on_chunk)
 
     %__MODULE__{
       repo: repo,
       queryable: queryable,
-      options: %{key: key, direction: direction, chunk: chunk},
+      options: %{key: key, direction: direction, chunk: chunk, on_chunk: on_chunk},
       state: %{}
     }
   end
@@ -39,23 +40,33 @@ defimpl Enumerable, for: Bourne.Stream do
   def reduce(stream, {:cont, acc}, fun) do
     key = stream.options[:key]
     chunk = stream.options[:chunk]
+    on_chunk = stream.options[:on_chunk]
 
     rows = stream.queryable
            |> offset(stream)
            |> Ecto.Query.limit(^chunk)
            |> stream.repo.all()
 
+    if on_chunk, do: on_chunk.(rows)
+
     case List.last(rows) do
       nil ->
         {:done, acc}
 
+      [last_seen_key|_tail] ->
+        set_state stream, acc, fun, rows, last_seen_key
+        
       %{^key => last_seen_key} ->
-        state = Map.put(stream.state, :last_seen_key, last_seen_key)
-        stream = %Bourne.Stream{stream | state: state}
-        chunk = %Bourne.Stream.Chunk{stream: stream, rows: rows}
-
-        Enumerable.reduce(chunk, {:cont, acc}, fun)
+        set_state stream, acc, fun, rows, last_seen_key
     end
+  end
+
+  defp set_state(stream, acc, fun, rows, last_seen_key) do
+    state = Map.put(stream.state, :last_seen_key, last_seen_key)
+    stream = %Bourne.Stream{stream | state: state}
+    chunk = %Bourne.Stream.Chunk{stream: stream, rows: rows}
+
+    Enumerable.reduce(chunk, {:cont, acc}, fun)
   end
 
   defp offset(query, %Bourne.Stream{state: state}) when (state == %{}) do
