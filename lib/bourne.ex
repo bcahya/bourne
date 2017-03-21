@@ -18,7 +18,7 @@ defmodule Bourne do
       @doc ~S"""
       """
       def stream(queryable, options \\ []) do
-        case Keyword.pop(options, :method, :cursor) do
+        case Keyword.pop(options, :method, :keyset) do
           {:cursor, options} ->
             super(queryable, options)
           {:keyset, options} ->
